@@ -1,5 +1,7 @@
 /*
   g++ canny.cpp -o canny -lopencv_core -lopencv_imgproc -lopencv_highgui -lopencv_objdetect
+
+  // Info: http://docs.opencv.org/doc/tutorials/imgproc/shapedescriptors/find_contours/find_contours.html
 */
 
 #include "opencv2/imgproc/imgproc.hpp"
@@ -13,55 +15,64 @@ using namespace cv;
 
 Mat src, src_gray;
 Mat dst, detected_edges;
+Mat final;
+Mat canny_output, alpha;
+vector<vector<Point> > contours;
+vector<Vec4i> hierarchy;
 
 int edgeThresh = 1;
-int lowThreshold;
+int lowThreshold = 99;
 int const max_lowThreshold = 100, maxRGB = 255;
 int ratio = 3;
 int kernel_size = 3;
-char* window_name = "Edge Map";
+char* window_name = "Contours";
 
-int red = 0, blue = 0, green = 0, minActivate = 150;
+int red = 0, blue = 255, green = 0, minActivate = 100;
 int save = 0;
+int fill = 4;
 
 
 void doCanny()
 {
-  /// Reduce noise with a kernel 3x3
-  blur( src_gray, detected_edges, Size(3,3) );
+  /// Detect edges using canny
+  Canny( src_gray, canny_output, lowThreshold, lowThreshold*2, 3 );
+  /// Find contours
+  findContours( canny_output, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
 
-  /// Canny detector
-  Canny( detected_edges, detected_edges, lowThreshold, lowThreshold*ratio, kernel_size );
-
-  /// Using Canny's output as a mask, we display our result
-  dst = Scalar::all(0);
-
-  src.copyTo( dst, detected_edges);
-
-  // Apply color
-  int size = dst.cols * dst.rows * dst.channels();
-  uchar *p = dst.data;
-  for(int i=0; i<size; i+=3)
+  /// Draw contours
+  final = Mat::zeros( canny_output.size(), CV_8UC4 );
+  for(int i=0;i<contours.size();i++)
+  {
+    Scalar color = Scalar( blue, green, red );
+    drawContours( final, contours, i, color, fill, 8, hierarchy, 2, Point() );
+  }
+  
+  // Set the Alpha channel to get transparent background
+  int size = final.cols * final.rows * final.channels();
+  uchar *p = final.data;
+  for(int i=0; i<size; i+=final.channels())
   {
     //printf("\n[%d] = %d", i, *p);
-    if(*p >= minActivate && *(p+1) >= minActivate && *(p+2) >= minActivate)
+    if(*p >= minActivate || *(p+1) >= minActivate || *(p+2) >= minActivate)
     {
       *p = blue;
       *(p+1) = green;
       *(p+2) = red;
+      *(p+3) = 255; // Alpha -> Activated
     }
     else
     {
       *p = 255;
       *(p+1) = 255;
       *(p+2) = 255;
+      *(p+3) = 0; // Alpha -> Deactivated
     }
-    p += 3;
+    p += final.channels();
   }
 
-  // printf("\nB: %d, G: %d, R: %d, CHANneLS: %d \n", blue, green, red, dst.channels());
-
-  imshow( window_name, dst );
+  /// Show in a window
+  imshow(window_name, final);
+  //printf("\nB: %d, G: %d, R: %d, CHANneLS: %d \n", blue, green, red, final.channels());
 }
 
 
@@ -88,7 +99,7 @@ void saveImage(int, void*)
 {
   if(save == 1)
   {
-    imwrite("out.jpeg", dst);
+    imwrite("out.png", final);
   }
 }
 
@@ -117,7 +128,7 @@ int main( int argc, char** argv )
   createTrackbar( "RED:", window_name, &red, maxRGB, setColorRGR );
   createTrackbar( "GREEN:", window_name, &green, maxRGB, setColorRGR );
   createTrackbar( "BLUE:", window_name, &blue, maxRGB, setColorRGR );
-  createTrackbar( "MIN:", window_name, &minActivate, maxRGB, setColorRGR ); // MIN
+  createTrackbar( "FILL:", window_name, &fill, maxRGB, setColorRGR ); // Fill contour
 
   // Save Button
   createTrackbar( "SAVE", window_name, &save, 1, saveImage );
